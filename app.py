@@ -69,7 +69,7 @@ def fetch_reddit_post(submission_id):
         st.error(f"Error fetching Reddit post: {e}")
         return None, None, None
 
-def fetch_all_comments(submission_id, limit=50):
+def fetch_all_comments(submission_id, limit=10):
     """
     Fetch a limited number of comments from a Reddit submission.
 
@@ -86,6 +86,7 @@ def fetch_all_comments(submission_id, limit=50):
         comments = []
         for comment in submission.comments.list():
             comments.append(comment.body)
+            print(comment.body)
             if len(comments) >= limit:
                 break
         return comments
@@ -378,39 +379,56 @@ def analyze_comment_stance(comment_body, problem_statement, post_body):
         str: The stance of the comment ('Agree', 'Disagree', 'Neutral').
     """
     prompt = f"""
-    Determine the stance of the following comment in relation to the main problem statement extracted from the original post. Analyse the tone, context, and relation to the post body and whether it is agreeing with the post body, is neutral with the post body, or is disagreeing with the post body
+    You are an assistant tasked with determining the stance of a Reddit comment in relation to the main problem statement extracted from the original post.
 
-    Problem Statement:
+    **Problem Statement:**
     {problem_statement}
 
-    Original Post Body:
+    **Original Post Body:**
     {post_body}
 
-    Comment:
+    **Comment:**
     {comment_body}
 
-    Stance Options:
+    **Stance Options:**
     - Agree
     - Disagree
     - Neutral
 
-    Please respond with only one of the options: Agree, Disagree, or Neutral.
+    **Instructions:**
+    Analyze the comment and decide whether the commenter agrees, disagrees, or remains neutral regarding the problem statement. Consider the sentiment, context, and content of the reply. Respond with only one of the following options: Agree, Disagree, or Neutral.
+
+    **Examples:**
+    1. **Comment:** "I completely support this initiative. It's exactly what we need."
+       **Stance:** Agree
+
+    2. **Comment:** "I don't think this approach will work in the long run."
+       **Stance:** Disagree
+
+    3. **Comment:** "This is an interesting perspective."
+       **Stance:** Neutral
+
+    **Your Task:**
+    Based on the above information and examples, determine the stance of the given comment.
+
+    **Stance:**
     """
+
     try:
         response = client.chat.completions.create(
             model=deployment_name,
             messages=[{"role": "user", "content": prompt}]
         )
-        stance = response.choices[0].message.content.strip().lower()
-        if 'agree' in stance:
-            return 'Agree'
-        elif 'disagree' in stance:
-            return 'Disagree'
+        stance = response.choices[0].message.content.strip().capitalize()
+        if stance in ['Agree', 'Disagree', 'Neutral']:
+            return stance
         else:
+            # Handle unexpected responses by defaulting to 'Neutral'
             return 'Neutral'
     except Exception as e:
         st.error(f"Error analyzing comment stance: {e}")
         return 'Neutral'
+
 
 def calculate_risk_level(report):
     """Calculate the risk level based on total score."""
