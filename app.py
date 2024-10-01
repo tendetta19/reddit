@@ -40,8 +40,7 @@ client = AzureOpenAI(
     azure_endpoint=azure_openai_endpoint,
     api_key=azure_openai_api_key,
     api_version="2024-05-01-preview",
-)
-
+) 
 # Global variables
 keywords = ['violation', 'incident', 'critical', 'racism', 'national security', 'terrorism', 'radical']
 known_bad_sources = ['user1', 'user2', 'troll_account']
@@ -69,26 +68,52 @@ def fetch_reddit_post(submission_id):
         st.error(f"Error fetching Reddit post: {e}")
         return None, None, None
 
-def fetch_all_comments(submission_id, limit=10):
+# def fetch_all_comments(submission_id, limit=50):
+#     """
+#     Fetch a limited number of comments from a Reddit submission, excluding deleted comments.
+
+#     Args:
+#         submission_id (str): The Reddit submission ID.
+#         limit (int): The maximum number of comments to retrieve.
+
+#     Returns:
+#         list: A list of comment bodies excluding deleted comments.
+#     """
+#     try:
+#         submission = reddit.submission(id=submission_id)
+#         submission.comments.replace_more(limit=0)  # Avoid fetching "MoreComments" objects
+#         comments = []
+#         for comment in submission.comments.list():
+#             if comment.body in ("[deleted]", "[removed]"):
+#                 continue
+
+#             comments.append(comment.body)
+#             if len(comments) >= limit:
+#                 break
+#         return comments
+#     except Exception as e:
+#         st.error(f"Error fetching comments: {e}")
+#         return []
+
+
+def fetch_all_comments(submission_id):
     """
-    Fetch a limited number of comments from a Reddit submission.
+    Fetch all comments from a Reddit submission, excluding deleted or removed comments.
 
     Args:
         submission_id (str): The Reddit submission ID.
-        limit (int): The maximum number of comments to retrieve.
 
     Returns:
-        list: A list of comment bodies.
+        list: A list of comment bodies excluding deleted or removed comments.
     """
     try:
         submission = reddit.submission(id=submission_id)
-        submission.comments.replace_more(limit=0)  # Avoid fetching "MoreComments" objects
+        submission.comments.replace_more(limit=None)  # Fetch all comments by removing "MoreComments" objects
         comments = []
         for comment in submission.comments.list():
+            if comment.body in ("[deleted]", "[removed]"):
+                continue
             comments.append(comment.body)
-            print(comment.body)
-            if len(comments) >= limit:
-                break
         return comments
     except Exception as e:
         st.error(f"Error fetching comments: {e}")
@@ -99,36 +124,39 @@ def write_report_to_excel(report, template_path):
     """Write report data to Excel using a template."""
     try:
         workbook = load_workbook(template_path)
-        sheet = workbook.active
+        # Access the 'Stats' sheet
+        stats_sheet = workbook['Stats']
+        main_sheet = workbook['Main']  # Assuming the main sheet is the active one
 
-        # Populate the required fields
-        sheet['B2'] = report['Title']
-        sheet['B3'] = report['Link']
-        sheet['B4'] = report['Body']
-        sheet['B5'] = report.get('Problem Statement', 'N/A')  # New field for Problem Statement
-        sheet['B9'] = report['Content Type Score']
-        sheet['D9'] = report['Content Type Explanation']
-        sheet['B10'] = report['Sentiment Score']
-        sheet['D10'] = report['Sentiment Explanation']
-        sheet['B11'] = report['Keywords Score']
-        sheet['D11'] = report['Keywords Explanation']
-        sheet['B12'] = report['Targeting Score']
-        sheet['D12'] = report['Targeting Explanation']
-        sheet['B13'] = report['Context Score']
-        sheet['D13'] = report['Context Explanation']
-        sheet['B14'] = report['Urgency Score']
-        sheet['D14'] = report['Urgency Explanation']
-        sheet['B15'] = report['Source Reputation Score']
-        sheet['D15'] = report['Reputation Explanation']
-        sheet['B18'] = report["Summary"]
+        # Populate the required fields in the main sheet
+        main_sheet['B2'] = report['Title']
+        main_sheet['B3'] = report['Link']
+        main_sheet['B4'] = report['Body']
+        main_sheet['B5'] = report.get('Problem Statement', 'N/A')
+        main_sheet['B9'] = report['Content Type Score']
+        main_sheet['D9'] = report['Content Type Explanation']
+        main_sheet['B10'] = report['Sentiment Score']
+        main_sheet['D10'] = report['Sentiment Explanation']
+        main_sheet['B11'] = report['Keywords Score']
+        main_sheet['D11'] = report['Keywords Explanation']
+        main_sheet['B12'] = report['Targeting Score']
+        main_sheet['D12'] = report['Targeting Explanation']
+        main_sheet['B13'] = report['Context Score']
+        main_sheet['D13'] = report['Context Explanation']
+        main_sheet['B14'] = report['Urgency Score']
+        main_sheet['D14'] = report['Urgency Explanation']
+        main_sheet['B15'] = report['Source Reputation Score']
+        main_sheet['D15'] = report['Reputation Explanation']
+        main_sheet['B18'] = report["Summary"]
 
-        # Write comment analysis starting from a specific cell, e.g., B20
-        start_row = 20
-        sheet.cell(row=start_row, column=2, value="Comment")
-        sheet.cell(row=start_row, column=3, value="Stance")
-        for idx, comment_data in enumerate(report.get("Comments", []), start=1):
-            sheet.cell(row=start_row + idx, column=2, value=comment_data['comment'])
-            sheet.cell(row=start_row + idx, column=3, value=comment_data['stance'])
+       
+        # Write the counts into the 'Stats' sheet
+        stats_sheet['C19'] = report.get('Agree Count', 0)
+        stats_sheet['C20'] = report.get('Disagree Count', 0)
+        stats_sheet['C21'] = report.get('Neutral Count', 0)
+
+        # Write the general consensus into cell E19
+        stats_sheet['E19'] = report.get('General Consensus', 'N/A')
 
         # Save the workbook to a BytesIO buffer
         output = io.BytesIO()
@@ -368,7 +396,7 @@ def extract_problem_statement(title, body):
 
 def analyze_comment_stance(comment_body, problem_statement, post_body):
     """
-    Analyze the stance of a comment relative to the problem statement and post body.
+    Analyze the stance of a comment relative to the problem statement and post body using individual scores for each criterion.
 
     Args:
         comment_body (str): The text of the comment.
@@ -379,7 +407,7 @@ def analyze_comment_stance(comment_body, problem_statement, post_body):
         str: The stance of the comment ('Agree', 'Disagree', 'Neutral').
     """
     prompt = f"""
-    You are an assistant tasked with determining the stance of a Reddit comment in relation to the main problem statement extracted from the original post.
+    You are an assistant tasked with scoring a Reddit comment in relation to the original post.
 
     **Problem Statement:**
     {problem_statement}
@@ -390,28 +418,38 @@ def analyze_comment_stance(comment_body, problem_statement, post_body):
     **Comment:**
     {comment_body}
 
-    **Stance Options:**
-    - Agree
-    - Disagree
-    - Neutral
-
     **Instructions:**
-    Analyze the comment and decide whether the commenter agrees, disagrees, or remains neutral regarding the problem statement. Consider the sentiment, context, and content of the reply. Respond with only one of the following options: Agree, Disagree, or Neutral.
+    Analyze the comment based on the following criteria, and assign a score between -10 and 10 for each:
 
-    **Examples:**
-    1. **Comment:** "I completely support this initiative. It's exactly what we need."
-       **Stance:** Agree
+    1. **Similarity to the contents of the post:**
+       - Evaluate how closely the comment relates to the topics and points discussed in the post.
+       - **Score:** -10 (not similar at all) to 10 (highly similar).
 
-    2. **Comment:** "I don't think this approach will work in the long run."
-       **Stance:** Disagree
+    2. **Tone towards the post:**
+       - Determine if the comment expresses a positive, negative, or neutral sentiment towards the post.
+       - **Score:** -10 (very negative) to 10 (very positive).
 
-    3. **Comment:** "This is an interesting perspective."
-       **Stance:** Neutral
+    3. **Additional Factors:**
+       - Consider any other elements that might indicate the comment's stance (e.g., supportive language, criticism, questions).
+       - **Score:** -10 (very unfavorable) to 10 (very favorable).
 
     **Your Task:**
-    Based on the above information and examples, determine the stance of the given comment.
+    Provide the score for each criterion in the following format:
 
-    **Stance:**
+    **Scores:**
+    Similarity Score: [score]
+    Tone Score: [score]
+    Additional Factors Score: [score]
+
+    **Total Score:**
+    [sum of the three scores]
+
+    **Instructions:**
+    - Make sure each score is an integer between -10 and 10.
+    - Sum the individual scores to get the total score.
+
+    **Response Format:**
+    Provide only the scores as specified without additional commentary.
     """
 
     try:
@@ -419,17 +457,35 @@ def analyze_comment_stance(comment_body, problem_statement, post_body):
             model=deployment_name,
             messages=[{"role": "user", "content": prompt}]
         )
-        stance = response.choices[0].message.content.strip().capitalize()
-        if stance in ['Agree', 'Disagree', 'Neutral']:
-            return stance
+        content = response.choices[0].message.content.strip()
+
+        # Extract the individual scores 
+        similarity_score_match = re.search(r"Similarity Score:\s*(-?\d+)", content)
+        tone_score_match = re.search(r"Tone Score:\s*(-?\d+)", content)
+        additional_score_match = re.search(r"Additional Factors Score:\s*(-?\d+)", content)
+
+        if similarity_score_match and tone_score_match and additional_score_match:
+            similarity_score = int(similarity_score_match.group(1))
+            tone_score = int(tone_score_match.group(1))
+            additional_score = int(additional_score_match.group(1))
+
+            total_score = similarity_score + tone_score + additional_score
+
+            # Ensure total score is between -30 and 30
+            total_score = max(min(total_score, 30), -30)
+
+            if total_score > 0:
+                return 'Agree'
+            elif total_score < 0:
+                return 'Disagree'
+            else:
+                return 'Neutral'
         else:
             # Handle unexpected responses by defaulting to 'Neutral'
             return 'Neutral'
     except Exception as e:
         st.error(f"Error analyzing comment stance: {e}")
         return 'Neutral'
-
-
 def calculate_risk_level(report):
     """Calculate the risk level based on total score."""
     total_score = sum([
@@ -480,6 +536,80 @@ def generate_summary(report, risk_level):
         st.error(f"Error generating summary: {e}")
         return "Summary could not be generated."
 
+# 
+
+def analyze_general_consensus(comments):
+    """
+    Determine the general consensus of the comments using OpenAI by analyzing all comment texts.
+
+    Args:
+        comments (list): List of comment texts.
+
+    Returns:
+        str: A summary statement of the general consensus.
+    """
+    # Due to potential token limits, we'll summarize comments in batches if necessary
+    MAX_TOKENS = 3000  # Adjust based on model's token limit
+    BATCH_SIZE = 100    # Number of comments per batch; adjust as needed
+
+    def summarize_comments(comment_batch):
+        """Summarize a batch of comments."""
+        prompt = f"""
+        You are an analyst tasked with summarizing the general consensus of comments on a Reddit post.
+
+        Here are some comments:
+        {comment_batch}
+
+        Based on these comments, provide a concise summary statement that reflects how the general public is feeling about the post. The summary should be clear, neutral, and informative on things they are agreeing on, disagreeing on, or are neutral about.
+        """
+
+        try:
+            response = client.chat.completions.create(
+                model=deployment_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,  # Adjust as needed
+                temperature=0.5
+            )
+            summary = response.choices[0].message.content.strip()
+            return summary
+        except Exception as e:
+            st.error(f"Error summarizing comments: {e}")
+            return ""
+
+    # If the number of comments is large, process them in batches
+    summaries = []
+    for i in range(0, len(comments), BATCH_SIZE):
+        batch = comments[i:i+BATCH_SIZE]
+        # Concatenate comments separated by newlines
+        comment_text = "\n".join(batch)
+        summary = summarize_comments(comment_text)
+        if summary:
+            summaries.append(summary)
+
+    # Now, summarize all batch summaries into a final consensus
+    aggregated_summary = "\n".join(summaries)
+
+    final_prompt = f"""
+    You have the following summaries of Reddit comments:
+
+    {aggregated_summary}
+
+    Based on these summaries, provide a final concise summary statement that reflects the overall general consensus of all comments on the Reddit post. The summary should be clear, neutral, and informative about the main points of agreement, disagreement, or neutrality among the commenters.
+    """
+
+    try:
+        final_response = client.chat.completions.create(
+            model=deployment_name,
+            messages=[{"role": "user", "content": final_prompt}],
+            max_tokens=300,  # Adjust as needed
+            temperature=0.5
+        )
+        final_consensus = final_response.choices[0].message.content.strip()
+        return final_consensus
+    except Exception as e:
+        st.error(f"Error generating final consensus: {e}")
+        return "General consensus could not be determined."
+
 # ==============================================================================
 # Retry Decorator
 # ==============================================================================
@@ -508,8 +638,8 @@ def retry_on_exception(retries=3, delay=1):
 
 @st.cache_data(show_spinner=False)
 @retry_on_exception(retries=3, delay=1)
-def generate_report(title, body, author, reddit_url):
-    """Generate a comprehensive report based on analyses."""
+def generate_report(title, body, author, reddit_url): 
+    
     # Existing analyses
     content_type_score, content_type_explanation = analyze_content_type(title, body)
     sentiment_score, sentiment_explanation = analyze_sentiment(body)
@@ -530,37 +660,67 @@ def generate_report(title, body, author, reddit_url):
     disagree_count = 0
     neutral_count = 0
 
+ 
     if comments:
         st.info("Analyzing comments' stances. This may take a while depending on the number of comments...")
-
-        # Define a helper function for processing a single comment
-        def process_comment(comment):
-            stance = analyze_comment_stance(comment, problem_statement, body)
-            return {'comment': comment, 'stance': stance}
-
-        # Use ThreadPoolExecutor for parallel processing
-        max_workers = min(32, os.cpu_count() + 4)  # Adjust based on your system and API rate limits
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Use stqdm to display a progress bar
-            results = list(stqdm(executor.map(process_comment, comments), total=len(comments), desc="Processing comments"))
-
-        # Aggregate the results
-        for result in results:
-            comment_analysis.append(result)
-            stance = result['stance']
-            if stance == 'Agree':
-                agree_count += 1
-            elif stance == 'Disagree':
-                disagree_count += 1
-            else:
-                neutral_count += 1
+ 
 
         total_comments = len(comments)
+        max_workers = min(32, os.cpu_count() + 4)  # Adjust based on your system and API rate limits
+
+        # Initialize Streamlit progress bar and placeholder
+        progress_bar = st.progress(0)
+        remaining_placeholder = st.empty()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks to the executor
+            future_to_comment = {
+                executor.submit(analyze_comment_stance, comment, problem_statement, body): comment
+                for comment in comments
+            }
+
+            completed = 0
+            for future in concurrent.futures.as_completed(future_to_comment):
+                comment = future_to_comment[future]  # Retrieve the original comment 
+                try:
+                    stance = future.result()  
+                    comment_analysis.append({'comment': comment, 'stance': stance})
+
+ 
+                    if stance == 'Agree':
+                        agree_count += 1
+                    elif stance == 'Disagree':
+                        disagree_count += 1
+                    else:
+                        neutral_count += 1
+
+                except Exception as e:
+                    st.error(f"Error processing comment: {e}")
+
+                # Update progress
+                completed += 1
+                progress_percentage = completed / total_comments
+                progress_bar.progress(progress_percentage)
+
+                # Update remaining comments
+                remaining = total_comments - completed
+                remaining_placeholder.text(f"Comments left to process: {remaining}")
+
+        # Final update after processing is complete
+        remaining_placeholder.text("All comments have been processed.")
+        progress_bar.empty()  # Optionally remove the progress bar
+
+        # Calculate percentages
         agree_percentage = (agree_count / total_comments) * 100 if total_comments else 0
         disagree_percentage = (disagree_count / total_comments) * 100 if total_comments else 0
         neutral_percentage = (neutral_count / total_comments) * 100 if total_comments else 0
+
     else:
         agree_percentage = disagree_percentage = neutral_percentage = 0
+
+
+    # Determine General Consensus using OpenAI based on all comments
+    general_consensus = analyze_general_consensus(comments)
 
     report = {
         "Title": title,
@@ -584,7 +744,11 @@ def generate_report(title, body, author, reddit_url):
         "Comments": comment_analysis,
         "Agree Percentage": agree_percentage,
         "Disagree Percentage": disagree_percentage,
-        "Neutral Percentage": neutral_percentage
+        "Neutral Percentage": neutral_percentage,
+        "Agree Count": agree_count,
+        "Disagree Count": disagree_count,
+        "Neutral Count": neutral_count,
+        "General Consensus": general_consensus  # Added field
     }
 
     # Calculate risk level
@@ -599,98 +763,135 @@ def generate_report(title, body, author, reddit_url):
 # ==============================================================================
 # Streamlit UI Components
 # ==============================================================================
+def render_sidebar():
+    """Render the scoring metric explanations in the sidebar as a single collapsible section."""
+    st.sidebar.title("Scoring Metrics")
 
 def render_sidebar():
-    """Render the scoring metric explanations in the sidebar."""
-    st.sidebar.title("Scoring Metric")
+    """Render the scoring metric explanations in the sidebar as a single collapsible section with basic explanations."""
+    st.sidebar.title("Scoring Metrics")
 
-    with st.sidebar.expander("Content Type (1–10)", expanded=False):
+    with st.sidebar.expander("View Scoring Metric Explanations", expanded=False):
+        # Content Type
+        st.markdown("### Content Type (1–10)")
         st.markdown("""
-        1: No violation.  
-        2: Slightly controversial.  
-        3: Minor sensitivity.  
-        4: Somewhat controversial.  
-        5: Sensitive topics or controversial subjects.  
-        6: Subtle references to controversial topics.  
-        7: Sensitive or slightly problematic content.  
-        8: References problematic content without being harmful.  
-        9: Strong hints at violations (e.g., borderline threats).  
-        10: Extreme violations (e.g., threats, slurs).  
+        ***Content Type** assesses the nature and severity of the content in the post, categorizing it based on the presence of violations, controversial topics, or harmful language.*
+
+        - **1:** No violation.
+        - **2:** Slightly controversial.
+        - **3:** Minor sensitivity.
+        - **4:** Somewhat controversial.
+        - **5:** Sensitive topics or controversial subjects.
+        - **6:** Subtle references to controversial topics.
+        - **7:** Sensitive or slightly problematic content.
+        - **8:** References problematic content without being harmful.
+        - **9:** Strong hints at violations (e.g., borderline threats).
+        - **10:** Extreme violations (e.g., threats, slurs).
         """)
 
-    with st.sidebar.expander("Sentiment (1–10)", expanded=False):
+        # Sentiment
+        st.markdown("### Sentiment (1–10)")
         st.markdown("""
-        1: Very positive.  
-        2: Positive with minor criticism.  
-        3: Mostly positive with some negativity.  
-        4: Neutral with slight positive undertones.  
-        5: Neutral.  
-        6: Slightly negative.  
-        7: Mostly negative with some positive aspects.  
-        8: Predominantly negative.  
-        9: Strongly negative.  
-        10: Extremely negative or hostile tone.  
+        ***Sentiment** evaluates the overall emotional tone of the post, determining whether it conveys positive, negative, or neutral sentiments.*
+
+        - **1:** Very positive.
+        - **2:** Positive with minor criticism.
+        - **3:** Mostly positive with some negativity.
+        - **4:** Neutral with slight positive undertones.
+        - **5:** Neutral.
+        - **6:** Slightly negative.
+        - **7:** Mostly negative with some positive aspects.
+        - **8:** Predominantly negative.
+        - **9:** Strongly negative.
+        - **10:** Extremely negative or hostile tone.
         """)
 
-    with st.sidebar.expander("Keywords (0, 5, 7, 10)", expanded=False):
+        # Keywords
+        st.markdown("### Keywords (0, 5, 7, 10)")
         st.markdown("""
-        0: No risky keywords.  
-        5: Some high-risk keywords.  
-        7: Frequent use of high-risk keywords.  
-        10: Excessive use of multiple high-risk keywords.  
+        ***Keywords** measures the prevalence of high-risk or flagged keywords within the post, indicating potential areas of concern.*
+
+        - **0:** No risky keywords.
+        - **5:** Some high-risk keywords.
+        - **7:** Frequent use of high-risk keywords.
+        - **10:** Excessive use of multiple high-risk keywords.
         """)
 
-    with st.sidebar.expander("Targeting (1–10)", expanded=False):
+        # Targeting
+        st.markdown("### Targeting (1–10)")
         st.markdown("""
-        1: No targeting.  
-        2: Very subtle targeting.  
-        3: Occasional indirect targeting.  
-        4: Frequent indirect references.  
-        5: Subtle targeting.  
-        6: Direct but mild targeting.  
-        7: Direct targeting without aggressive language.  
-        8: Strong targeting.  
-        9: Aggressive targeting, borderline harmful.  
-        10: Explicit targeting with harmful intent.  
+        ***Targeting** assesses whether the post directs negative attention toward specific individuals or groups, evaluating the level of aggression or hostility.*
+
+        - **1:** No targeting.
+        - **2:** Very subtle targeting.
+        - **3:** Occasional indirect targeting.
+        - **4:** Frequent indirect references.
+        - **5:** Subtle targeting.
+        - **6:** Direct but mild targeting.
+        - **7:** Direct targeting without aggressive language.
+        - **8:** Strong targeting.
+        - **9:** Aggressive targeting, borderline harmful.
+        - **10:** Explicit targeting with harmful intent.
         """)
 
-    with st.sidebar.expander("Context (1–10)", expanded=False):
+        # Context
+        st.markdown("### Context (1–10)")
         st.markdown("""
-        1: No relevance to societal events.  
-        2: Minor relevance.  
-        3: Occasionally relevant to sensitive topics.  
-        4: Moderately relevant.  
-        5: Current events discussed but not central.  
-        6: Important events mentioned but not central.  
-        7: Highly relevant to current events.  
-        8: Significant relevance to major issues.  
-        9: Strongly tied to current issues.  
-        10: Direct relevance to critical issues.  
+        ***Context** evaluates the relevance of the post to current societal or political events, determining how closely it aligns with ongoing discussions or issues.*
+
+        - **1:** No relevance to societal events.
+        - **2:** Minor relevance.
+        - **3:** Occasionally relevant to sensitive topics.
+        - **4:** Moderately relevant.
+        - **5:** Current events discussed but not central.
+        - **6:** Important events mentioned but not central.
+        - **7:** Highly relevant to current events.
+        - **8:** Significant relevance to major issues.
+        - **9:** Strongly tied to current issues.
+        - **10:** Direct relevance to critical issues.
         """)
 
-    with st.sidebar.expander("Urgency (1–10)", expanded=False):
+        # Urgency
+        st.markdown("### Urgency (1–10)")
         st.markdown("""
-        1: No urgency.  
-        2: Minor hypothetical mentions.  
-        3: Occasional mention of potential threat.  
-        4: Slight undertones of urgency.  
-        5: Hypothetical threat.  
-        6: Subtle mentions of urgency.  
-        7: Strong hints of an issue.  
-        8: High urgency but not immediate.  
-        9: Immediate threat implied.  
-        10: Immediate threat, calls for action.  
+        ***Urgency** gauges the immediacy of a threat or the need for prompt action within the post, indicating the level of concern it may raise.*
+
+        - **1:** No urgency.
+        - **2:** Minor hypothetical mentions.
+        - **3:** Occasional mention of potential threat.
+        - **4:** Slight undertones of urgency.
+        - **5:** Hypothetical threat.
+        - **6:** Subtle mentions of urgency.
+        - **7:** Strong hints of an issue.
+        - **8:** High urgency but not immediate.
+        - **9:** Immediate threat implied.
+        - **10:** Immediate threat, calls for action.
         """)
 
-    with st.sidebar.expander("Source Reputation (0 or 10)", expanded=False):
+        # Source Reputation
+        st.markdown("### Source Reputation (0 or 10)")
         st.markdown("""
-        0: Highly credible.  
-        10: Known bad actor with harmful content.  
+        ***Source Reputation** assesses the credibility of the post's author, determining whether the source is trustworthy or known for disseminating harmful content.*
+
+        - **0:** Highly credible.
+        - **10:** Known bad actor with harmful content.
         """)
+
+
 
 # ==============================================================================
 # Main Application
-# ==============================================================================
+# ==============================================================================\
+
+
+# Set the page configuration
+st.set_page_config(
+    page_title="Reddit Incident Analyzer",  # The title displayed on the browser tab
+    page_icon="🔍",                          # Optional: Add an emoji or image as the tab icon
+    layout="wide",                           # Optional: Choose between 'centered' or 'wide' layout
+    initial_sidebar_state="expanded"         # Optional: Set the initial state of the sidebar
+)
+
 
 def main():
     """Main function to run the Streamlit app."""
@@ -700,153 +901,171 @@ def main():
     if 'report' not in st.session_state:
         st.session_state['report'] = None
 
+
+    # Create a navigation menu in the sidebar
+    st.sidebar.title("Navigation")
+    nav_options = ["Generate Report", "Recommendations", "Detailed Analysis", "Problem Statement", "Comment Stance Analysis"]
+    selection = st.sidebar.radio("Go to", nav_options)
+
+
     # Render the sidebar
     render_sidebar()
-
+    
     # Title
     st.title("Reddit Incident Analysis Report")
 
-    # Input for Reddit URL
-    reddit_url = st.text_input("Enter a Reddit post URL:")
+    if selection == "Generate Report":
+        # Input for Reddit URL
+        reddit_url = st.text_input("Enter a Reddit post URL:")
 
-    if st.button("Generate Report"):
-        if reddit_url:
-            if st.session_state['previous_link'] != reddit_url:
-                generate_report.clear()  # Clear cached data for new URL
-                st.session_state['previous_link'] = reddit_url
-                st.session_state['report'] = None
+        if st.button("Generate Report"):
+            if reddit_url:
+                if st.session_state['previous_link'] != reddit_url:
+                    generate_report.clear()  # Clear cached data for new URL
+                    st.session_state['previous_link'] = reddit_url
+                    st.session_state['report'] = None
 
-            submission_id = get_submission_id(reddit_url)
-            if submission_id:
-                title, body, author = fetch_reddit_post(submission_id)
-                if title and body and author:
-                    # Generate the report
-                    try:
-                        report = generate_report(title, body, author, reddit_url)
-                        st.session_state['report'] = report
-                    except Exception as e:
-                        st.error(f"An error occurred during report generation: {e}")
-                        return
+                submission_id = get_submission_id(reddit_url)
+                if submission_id:
+                    title, body, author = fetch_reddit_post(submission_id)
+                    if title and body and author:
+                        # Generate the report
+                        try:
+                            report = generate_report(title, body, author, reddit_url)
+                            st.session_state['report'] = report
+                        except Exception as e:
+                            st.error(f"An error occurred during report generation: {e}")
+                            return
 
-                    # Write report to the template
-                    try:
-                        current_dir = os.path.dirname(os.path.abspath(__file__))
-                        template_path = os.path.join(current_dir, 'template.xlsx')
-                        excel_data = write_report_to_excel(report, template_path)
-                    except Exception as e:
-                        st.error(f"Error writing report to Excel: {e}")
-                        excel_data = None
+                        # Write report to the template
+                        try:
+                            current_dir = os.path.dirname(os.path.abspath(__file__))
+                            template_path = os.path.join(current_dir, 'template.xlsx')
+                            excel_data = write_report_to_excel(report, template_path)
+                        except Exception as e:
+                            st.error(f"Error writing report to Excel: {e}")
+                            excel_data = None
 
-                    if excel_data:
-                        # Create a unique filename
-                        safe_title = ''.join(c for c in report['Title'].replace(" ", "_")[:20] if c.isalnum() or c == '_')
-                        date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                        filename = f"{safe_title}-{date_str}.xlsx"
+                        if excel_data:
+                            # Create a unique filename
+                            safe_title = ''.join(c for c in report['Title'].replace(" ", "_")[:20] if c.isalnum() or c == '_')
+                            date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                            filename = f"{safe_title}-{date_str}.xlsx"
 
-                        st.download_button(
-                            label="Download Report as Excel",
-                            data=excel_data,
-                            file_name=filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-
-                        # Display the summary report on the page
-                        st.header("Recommendations")
-                        risk_level = report["Risk Level"]
-                        # Color mapping for risk levels
-                        risk_info = {
-                            'HIGH': {
-                                'color': 'red',
-                                'advice': "Take immediate action to mitigate risks."
-                            },
-                            'MEDIUM': {
-                                'color': 'orange',
-                                'advice': "Monitor the situation and prepare contingency plans."
-                            },
-                            'LOW': {
-                                'color': 'green',
-                                'advice': "Proceed with standard procedures."
-                            }
-                        }
-                        info = risk_info.get(risk_level.upper(), {
-                            'color': 'black',
-                            'advice': "No specific advice available for this risk level."
-                        })
-                        risk_color = info['color']
-                        advice = info['advice']
-                        # Display the Risk Level with color
-                        st.markdown(
-                            f"**Risk Level:** <span style='color:{risk_color};'>{risk_level}</span>",
-                            unsafe_allow_html=True
-                        )
-
-                        # Display the Advice
-                        st.markdown(f"**Advice:** {advice}")
-                        st.write(report["Summary"])
-
-                        # Optionally, display detailed analysis
-                        st.subheader("Detailed Analysis")
-                        st.markdown(f"**Content Type Score:** {report['Content Type Score']}")
-                        st.markdown(f"*Explanation:* {report['Content Type Explanation']}")
-
-                        st.markdown(f"**Sentiment Score:** {report['Sentiment Score']}")
-                        st.markdown(f"*Explanation:* {report['Sentiment Explanation']}")
-
-                        st.markdown(f"**Keywords Score:** {report['Keywords Score']}")
-                        st.markdown(f"*Explanation:* {report['Keywords Explanation']}")
-
-                        st.markdown(f"**Targeting Score:** {report['Targeting Score']}")
-                        st.markdown(f"*Explanation:* {report['Targeting Explanation']}")
-
-                        st.markdown(f"**Context Score:** {report['Context Score']}")
-                        st.markdown(f"*Explanation:* {report['Context Explanation']}")
-
-                        st.markdown(f"**Urgency Score:** {report['Urgency Score']}")
-                        st.markdown(f"*Explanation:* {report['Urgency Explanation']}")
-
-                        st.markdown(f"**Source Reputation Score:** {report['Source Reputation Score']}")
-                        st.markdown(f"*Explanation:* {report['Reputation Explanation']}")
-
-                        # Display Problem Statement
-                        st.subheader("Problem Statement")
-                        st.markdown(f"{report.get('Problem Statement', 'N/A')}")
-
-                        # Display Comment Stance Percentages
-                        st.header("Comment Stance Analysis")
-                        agree_pct = report.get("Agree Percentage", 0)
-                        disagree_pct = report.get("Disagree Percentage", 0)
-                        neutral_pct = report.get("Neutral Percentage", 0)
-
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("Agree", f"{agree_pct:.2f}%")
-                        col2.metric("Disagree", f"{disagree_pct:.2f}%")
-                        col3.metric("Neutral", f"{neutral_pct:.2f}%")
-
-                        # Visual Representation using Bar Chart
-                        st.subheader("Stance Distribution")
-                        stance_data = pd.DataFrame({
-                            'Stance': ['Agree', 'Disagree', 'Neutral'],
-                            'Percentage': [agree_pct, disagree_pct, neutral_pct]
-                        })
-                        st.bar_chart(stance_data.set_index('Stance'))
-
-                        # Pie Chart Visualization
-                        st.subheader("Stance Distribution (Pie Chart)")
-                        pie_data = pd.DataFrame({
-                            'Stance': ['Agree', 'Disagree', 'Neutral'],
-                            'Percentage': [agree_pct, disagree_pct, neutral_pct]
-                        })
-                        fig = px.pie(pie_data, names='Stance', values='Percentage', title='Comment Stance Distribution')
-                        st.plotly_chart(fig)
-
+                            st.download_button(
+                                label="Download Report as Excel",
+                                data=excel_data,
+                                file_name=filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                        else:
+                            st.error("Failed to generate the Excel report.")
                     else:
-                        st.error("Failed to generate the Excel report.")
+                        st.error("Could not extract post content. Please ensure the Reddit URL is correct and accessible.")
                 else:
-                    st.error("Could not extract post content. Please ensure the Reddit URL is correct and accessible.")
+                    st.error("Invalid Reddit URL. Please provide a valid Reddit post URL.")
             else:
-                st.error("Invalid Reddit URL. Please provide a valid Reddit post URL.")
+                st.error("Please provide a Reddit URL.")
+
+    else:
+        # Ensure a report has been generated
+        if st.session_state['report']:
+            report = st.session_state['report']
+
+            if selection == "Recommendations":
+                with st.expander("Recommendations", expanded=True):
+                    risk_level = report["Risk Level"]
+                    # Color mapping for risk levels
+                    risk_info = {
+                        'HIGH': {
+                            'color': 'red',
+                            'advice': "Take immediate action to mitigate risks."
+                        },
+                        'MEDIUM': {
+                            'color': 'orange',
+                            'advice': "Monitor the situation and prepare contingency plans."
+                        },
+                        'LOW': {
+                            'color': 'green',
+                            'advice': "Proceed with standard procedures."
+                        }
+                    }
+                    info = risk_info.get(risk_level.upper(), {
+                        'color': 'black',
+                        'advice': "No specific advice available for this risk level."
+                    })
+                    risk_color = info['color']
+                    advice = info['advice']
+                    # Display the Risk Level with color
+                    st.markdown(
+                        f"**Risk Level:** <span style='color:{risk_color};'>{risk_level}</span>",
+                        unsafe_allow_html=True
+                    )
+
+                    # Display the Advice
+                    st.markdown(f"**Advice:** {advice}")
+                    st.write(report["Summary"])
+
+            elif selection == "Detailed Analysis":
+                with st.expander("Detailed Analysis", expanded=True):
+                    st.markdown(f"**Content Type Score:** {report['Content Type Score']}")
+                    st.markdown(f"*Explanation:* {report['Content Type Explanation']}")
+
+                    st.markdown(f"**Sentiment Score:** {report['Sentiment Score']}")
+                    st.markdown(f"*Explanation:* {report['Sentiment Explanation']}")
+
+                    st.markdown(f"**Keywords Score:** {report['Keywords Score']}")
+                    st.markdown(f"*Explanation:* {report['Keywords Explanation']}")
+
+                    st.markdown(f"**Targeting Score:** {report['Targeting Score']}")
+                    st.markdown(f"*Explanation:* {report['Targeting Explanation']}")
+
+                    st.markdown(f"**Context Score:** {report['Context Score']}")
+                    st.markdown(f"*Explanation:* {report['Context Explanation']}")
+
+                    st.markdown(f"**Urgency Score:** {report['Urgency Score']}")
+                    st.markdown(f"*Explanation:* {report['Urgency Explanation']}")
+
+                    st.markdown(f"**Source Reputation Score:** {report['Source Reputation Score']}")
+                    st.markdown(f"*Explanation:* {report['Reputation Explanation']}")
+
+            elif selection == "Problem Statement":
+                with st.expander("Problem Statement", expanded=True):
+                    st.markdown(f"{report.get('Problem Statement', 'N/A')}")
+
+            elif selection == "Comment Stance Analysis":
+                with st.expander("Comment Stance Analysis", expanded=True):
+                    agree_pct = report.get("Agree Percentage", 0)
+                    disagree_pct = report.get("Disagree Percentage", 0)
+                    neutral_pct = report.get("Neutral Percentage", 0)
+
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Agree", f"{agree_pct:.2f}%")
+                    col2.metric("Disagree", f"{disagree_pct:.2f}%")
+                    col3.metric("Neutral", f"{neutral_pct:.2f}%")
+
+                    # General Consensus
+                    st.subheader("General Consensus")
+                    st.markdown(f"The general consensus among the comments is **{report.get('General Consensus', 'N/A')}**.")
+
+                    # Visual Representation using Bar Chart
+                    st.subheader("Stance Distribution")
+                    stance_data = pd.DataFrame({
+                        'Stance': ['Agree', 'Disagree', 'Neutral'],
+                        'Percentage': [agree_pct, disagree_pct, neutral_pct]
+                    })
+                    st.bar_chart(stance_data.set_index('Stance'))
+
+                    # Pie Chart Visualization
+                    st.subheader("Stance Distribution (Pie Chart)")
+                    pie_data = pd.DataFrame({
+                        'Stance': ['Agree', 'Disagree', 'Neutral'],
+                        'Percentage': [agree_pct, disagree_pct, neutral_pct]
+                    })
+                    fig = px.pie(pie_data, names='Stance', values='Percentage', title='Comment Stance Distribution')
+                    st.plotly_chart(fig)
         else:
-            st.error("Please provide a Reddit URL.")
+            st.warning("Please generate a report first.")
 
 if __name__ == "__main__":
     main()
