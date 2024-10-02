@@ -125,7 +125,7 @@ def write_report_to_excel(report, template_path):
         workbook = load_workbook(template_path)
         # Access the 'Stats' sheet
         stats_sheet = workbook['Stats']
-        main_sheet = workbook.active  # Assuming the main sheet is the active one
+        main_sheet = workbook['Main']  # Assuming the main sheet is the active one
 
         # Populate the required fields in the main sheet
         main_sheet['B2'] = report['Title']
