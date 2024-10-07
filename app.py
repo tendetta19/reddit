@@ -27,15 +27,22 @@ load_dotenv()
 
 # Initialize Reddit API client
 reddit = praw.Reddit(
-    client_id=os.getenv('CLIENT_ID'),
-    client_secret=os.getenv('CLIENT_SECRET'),
-    user_agent=os.getenv('USER_AGENT')
+    client_id="-nuGUTDobMlIN1lnHyyqRQ",
+    client_secret="zrbkJUPhAJd-RVDrtI3ulAmjGsgtKQ",
+    user_agent="Bob/0.1 by Bob"
 )
 
 # Azure OpenAI configuration
 deployment_name = "gpt-4"
-azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+azure_openai_endpoint = "https://shawn-openai-service-1.openai.azure.com/"
+azure_openai_api_key = "d0675b2ccedc4ffaba70d531b97db5e9" 
+
+
+# AZURE_OPENAI_ENDPOINT="https://shawn-openai-service-1.openai.azure.com/"
+# AZURE_OPENAI_API_KEY="d0675b2ccedc4ffaba70d531b97db5e9" 
+# CLIENT_ID=-nuGUTDobMlIN1lnHyyqRQ
+# CLIENT_SECRET=zrbkJUPhAJd-RVDrtI3ulAmjGsgtKQ
+# USER_AGENT=Bob/0.1 by Bob
 
 # Initialize Azure OpenAI client
 client = AzureOpenAI(
