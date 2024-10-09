@@ -95,37 +95,13 @@ def fetch_all_comments(submission_id, limit=50):
         return []
 
 
-# def fetch_all_comments(submission_id):
-#     """
-#     Fetch all comments from a Reddit submission, excluding deleted or removed comments.
-
-#     Args:
-#         submission_id (str): The Reddit submission ID.
-
-#     Returns:
-#         list: A list of comment bodies excluding deleted or removed comments.
-#     """
-#     try:
-#         submission = reddit.submission(id=submission_id)
-#         submission.comments.replace_more(limit=None)  # Fetch all comments by removing "MoreComments" objects
-#         comments = []
-#         for comment in submission.comments.list():
-#             if comment.body in ("[deleted]", "[removed]"):
-#                 continue
-#             comments.append(comment.body)
-#         return comments
-#     except Exception as e:
-#         st.error(f"Error fetching comments: {e}")
-#         return []
-
-
 def write_report_to_excel(report, template_path):
     """Write report data to Excel using a template."""
     try:
         workbook = load_workbook(template_path)
         # Access the 'Stats' sheet
         stats_sheet = workbook['Stats']
-        main_sheet = workbook['Main']  # Assuming the main sheet is the active one
+        main_sheet = workbook.active  # Assuming the main sheet is the active one
 
         # Populate the required fields in the main sheet
         main_sheet['B2'] = report['Title']
@@ -501,8 +477,6 @@ def generate_summary(report, risk_level):
         st.error(f"Error generating summary: {e}")
         return "Summary could not be generated."
 
-# 
-
 def analyze_general_consensus(comments):
     """
     Determine the general consensus of the comments using OpenAI by analyzing all comment texts.
@@ -723,10 +697,6 @@ def generate_report(title, body, author, reddit_url):
 # Streamlit UI Components
 # ==============================================================================
 def render_sidebar():
-    """Render the scoring metric explanations in the sidebar as a single collapsible section."""
-    st.sidebar.title("Scoring Metrics")
-
-def render_sidebar():
     """Render the scoring metric explanations in the sidebar as a single collapsible section with basic explanations."""
     st.sidebar.title("Scoring Metrics")
 
@@ -816,10 +786,6 @@ def render_sidebar():
         - **10:** Immediate threat, calls for action.
         """)
 
- 
-
-
-
 # ==============================================================================
 # Main Application
 # ==============================================================================\
@@ -849,13 +815,23 @@ def main():
     # Render the sidebar
     render_sidebar()
     
-    # Title
-    st.title("Reddit Incident Analysis Report")
+    # Title with optional image or logo
+    st.markdown("<h1 style='text-align: center;'>🔍 Reddit Incident Analysis Report</h1>", unsafe_allow_html=True)
+    st.write("")  # Add a spacer
 
     if selection == "Generate Report":
         # Input for Reddit URL
+        st.header("Generate Report")
+        st.write("Enter the Reddit post URL below to generate an incident analysis report.")
         reddit_url = st.text_input("Enter a Reddit post URL:")
 
+        # Add help expander
+        with st.expander("Need help? Click here for sample Reddit links"):
+            st.markdown("Here are some sample Reddit links you can try:")
+            st.write("[https://www.reddit.com/r/changemyview/comments/xnwpqu/cmv_the_uk_royal_family_are_an_outdated_and/](https://www.reddit.com/r/changemyview/comments/xnwpqu/cmv_the_uk_royal_family_are_an_outdated_and/)")
+            st.write("[https://www.reddit.com/r/malaysia/comments/1fsu4aq/does_chinese_employers_really_have_vendetta/](https://www.reddit.com/r/malaysia/comments/1fsu4aq/does_chinese_employers_really_have_vendetta/))")
+            st.write("[https://www.reddit.com/r/malaysia/comments/1fsqo2j/can_nonmuslims_give_zakat](https://www.reddit.com/r/malaysia/comments/1fsqo2j/can_nonmuslims_give_zakat)")
+ 
         if st.button("Generate Report"):
             if reddit_url:
                 if st.session_state['previous_link'] != reddit_url:
@@ -871,6 +847,7 @@ def main():
                         try:
                             report = generate_report(title, body, author, reddit_url)
                             st.session_state['report'] = report
+                            st.success("Report generated successfully! Navigate to 'Full Report' or other sections using the sidebar.")
                         except Exception as e:
                             st.error(f"An error occurred during report generation: {e}")
                             return
@@ -936,10 +913,14 @@ def main():
             risk_color = info['color']
             advice = info['advice']
             # Display the Risk Level with color
-            st.markdown(
-                f"**Risk Level:** <span style='color:{risk_color};'>{risk_level}</span>",
-                unsafe_allow_html=True
-            )
+            if risk_level.upper() == 'HIGH':
+                st.error(f"**Risk Level:** {risk_level}")
+            elif risk_level.upper() == 'MEDIUM':
+                st.warning(f"**Risk Level:** {risk_level}")
+            elif risk_level.upper() == 'LOW':
+                st.success(f"**Risk Level:** {risk_level}")
+            else:
+                st.info(f"**Risk Level:** {risk_level}")
 
             # Display the Advice
             st.markdown(f"**Advice:** {advice}")
@@ -947,21 +928,21 @@ def main():
 
             # Detailed Analysis
             st.subheader("Detailed Analysis")
-            st.markdown(f"**Content Type Score:** {report['Content Type Score']}")
-            st.markdown(f"*Explanation:* {report['Content Type Explanation']}")
+            metrics = [
+                ("Content Type Score", report['Content Type Score'], report['Content Type Explanation']),
+                ("Sentiment Score", report['Sentiment Score'], report['Sentiment Explanation']),
+                ("Targeting Score", report['Targeting Score'], report['Targeting Explanation']),
+                ("Context Score", report['Context Score'], report['Context Explanation']),
+                ("Urgency Score", report['Urgency Score'], report['Urgency Explanation']),
+            ]
 
-            st.markdown(f"**Sentiment Score:** {report['Sentiment Score']}")
-            st.markdown(f"*Explanation:* {report['Sentiment Explanation']}")
- 
-
-            st.markdown(f"**Targeting Score:** {report['Targeting Score']}")
-            st.markdown(f"*Explanation:* {report['Targeting Explanation']}")
-
-            st.markdown(f"**Context Score:** {report['Context Score']}")
-            st.markdown(f"*Explanation:* {report['Context Explanation']}")
-
-            st.markdown(f"**Urgency Score:** {report['Urgency Score']}")
-            st.markdown(f"*Explanation:* {report['Urgency Explanation']}") 
+            for metric_name, score, explanation in metrics:
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    st.markdown(f"**{metric_name}:** {score}")
+                with col2:
+                    st.markdown(f"*Explanation:* {explanation}")
+                st.write("---")
 
             # Problem Statement
             st.subheader("Problem Statement")
@@ -980,7 +961,7 @@ def main():
 
             # General Consensus
             st.subheader("General Consensus")
-            st.markdown(f"The general consensus among the comments is {report.get('General Consensus', 'N/A')}.")
+            st.markdown(f"The general consensus among the comments is: **{report.get('General Consensus', 'N/A')}**")
 
             # Visual Representation using Bar Chart
             st.subheader("Stance Distribution")
@@ -1033,93 +1014,96 @@ def main():
             report = st.session_state['report']
 
             if selection == "Recommendations":
-                with st.expander("Recommendations", expanded=True):
-                    risk_level = report["Risk Level"]
-                    # Color mapping for risk levels
-                    risk_info = {
-                        'HIGH': {
-                            'color': 'red',
-                            'advice': "Take immediate action to mitigate risks."
-                        },
-                        'MEDIUM': {
-                            'color': 'orange',
-                            'advice': "Monitor the situation and prepare contingency plans."
-                        },
-                        'LOW': {
-                            'color': 'green',
-                            'advice': "Proceed with standard procedures."
-                        }
+                st.header("Recommendations")
+                risk_level = report["Risk Level"]
+                # Color mapping for risk levels
+                risk_info = {
+                    'HIGH': {
+                        'color': 'red',
+                        'advice': "Take immediate action to mitigate risks."
+                    },
+                    'MEDIUM': {
+                        'color': 'orange',
+                        'advice': "Monitor the situation and prepare contingency plans."
+                    },
+                    'LOW': {
+                        'color': 'green',
+                        'advice': "Proceed with standard procedures."
                     }
-                    info = risk_info.get(risk_level.upper(), {
-                        'color': 'black',
-                        'advice': "No specific advice available for this risk level."
-                    })
-                    risk_color = info['color']
-                    advice = info['advice']
-                    # Display the Risk Level with color
-                    st.markdown(
-                        f"**Risk Level:** <span style='color:{risk_color};'>{risk_level}</span>",
-                        unsafe_allow_html=True
-                    )
+                }
+                info = risk_info.get(risk_level.upper(), {
+                    'color': 'black',
+                    'advice': "No specific advice available for this risk level."
+                })
+                risk_color = info['color']
+                advice = info['advice']
+                # Display the Risk Level with color
+                if risk_level.upper() == 'HIGH':
+                    st.error(f"**Risk Level:** {risk_level}")
+                elif risk_level.upper() == 'MEDIUM':
+                    st.warning(f"**Risk Level:** {risk_level}")
+                elif risk_level.upper() == 'LOW':
+                    st.success(f"**Risk Level:** {risk_level}")
+                else:
+                    st.info(f"**Risk Level:** {risk_level}")
 
-                    # Display the Advice
-                    st.markdown(f"**Advice:** {advice}")
-                    st.write(report["Summary"])
+                # Display the Advice
+                st.markdown(f"**Advice:** {advice}")
+                st.write(report["Summary"])
 
             elif selection == "Detailed Analysis":
-                with st.expander("Detailed Analysis", expanded=True):
-                    st.markdown(f"**Content Type Score:** {report['Content Type Score']}")
-                    st.markdown(f"*Explanation:* {report['Content Type Explanation']}")
+                st.header("Detailed Analysis")
+                metrics = [
+                    ("Content Type Score", report['Content Type Score'], report['Content Type Explanation']),
+                    ("Sentiment Score", report['Sentiment Score'], report['Sentiment Explanation']),
+                    ("Targeting Score", report['Targeting Score'], report['Targeting Explanation']),
+                    ("Context Score", report['Context Score'], report['Context Explanation']),
+                    ("Urgency Score", report['Urgency Score'], report['Urgency Explanation']),
+                ]
 
-                    st.markdown(f"**Sentiment Score:** {report['Sentiment Score']}")
-                    st.markdown(f"*Explanation:* {report['Sentiment Explanation']}")
-
-
-                    st.markdown(f"**Targeting Score:** {report['Targeting Score']}")
-                    st.markdown(f"*Explanation:* {report['Targeting Explanation']}")
-
-                    st.markdown(f"**Context Score:** {report['Context Score']}")
-                    st.markdown(f"*Explanation:* {report['Context Explanation']}")
-
-                    st.markdown(f"**Urgency Score:** {report['Urgency Score']}")
-                    st.markdown(f"*Explanation:* {report['Urgency Explanation']}")
- 
+                for metric_name, score, explanation in metrics:
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        st.markdown(f"**{metric_name}:** {score}")
+                    with col2:
+                        st.markdown(f"*Explanation:* {explanation}")
+                    st.write("---")
 
             elif selection == "Problem Statement":
-                with st.expander("Problem Statement", expanded=True):
-                    st.markdown(f"{report.get('Problem Statement', 'N/A')}")
+                st.header("Problem Statement")
+                st.markdown(f"{report.get('Problem Statement', 'N/A')}")
 
             elif selection == "Comment Stance Analysis":
-                with st.expander("Comment Stance Analysis", expanded=True):
-                    agree_pct = report.get("Agree Percentage", 0)
-                    disagree_pct = report.get("Disagree Percentage", 0)
-                    neutral_pct = report.get("Neutral Percentage", 0)
+                st.header("Comment Stance Analysis")
+                agree_pct = report.get("Agree Percentage", 0)
+                disagree_pct = report.get("Disagree Percentage", 0)
+                neutral_pct = report.get("Neutral Percentage", 0)
 
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Agree", f"{agree_pct:.2f}%")
-                    col2.metric("Disagree", f"{disagree_pct:.2f}%")
-                    col3.metric("Neutral", f"{neutral_pct:.2f}%")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Agree", f"{agree_pct:.2f}%")
+                col2.metric("Disagree", f"{disagree_pct:.2f}%")
+                col3.metric("Neutral", f"{neutral_pct:.2f}%")
 
-                    # General Consensus
-                    st.subheader("General Consensus")
-                    st.markdown(f"The general consensus among the comments is **{report.get('General Consensus', 'N/A')}**.")
+                # General Consensus
+                st.subheader("General Consensus")
+                st.markdown(f"The general consensus among the comments is: **{report.get('General Consensus', 'N/A')}**.")
 
-                    # Visual Representation using Bar Chart
-                    st.subheader("Stance Distribution")
-                    stance_data = pd.DataFrame({
-                        'Stance': ['Agree', 'Disagree', 'Neutral'],
-                        'Percentage': [agree_pct, disagree_pct, neutral_pct]
-                    })
-                    st.bar_chart(stance_data.set_index('Stance'))
+                # Visual Representation using Bar Chart
+                st.subheader("Stance Distribution")
+                stance_data = pd.DataFrame({
+                    'Stance': ['Agree', 'Disagree', 'Neutral'],
+                    'Percentage': [agree_pct, disagree_pct, neutral_pct]
+                })
+                st.bar_chart(stance_data.set_index('Stance'))
 
-                    # Pie Chart Visualization
-                    st.subheader("Stance Distribution (Pie Chart)")
-                    pie_data = pd.DataFrame({
-                        'Stance': ['Agree', 'Disagree', 'Neutral'],
-                        'Percentage': [agree_pct, disagree_pct, neutral_pct]
-                    })
-                    fig = px.pie(pie_data, names='Stance', values='Percentage', title='Comment Stance Distribution')
-                    st.plotly_chart(fig)
+                # Pie Chart Visualization
+                st.subheader("Stance Distribution (Pie Chart)")
+                pie_data = pd.DataFrame({
+                    'Stance': ['Agree', 'Disagree', 'Neutral'],
+                    'Percentage': [agree_pct, disagree_pct, neutral_pct]
+                })
+                fig = px.pie(pie_data, names='Stance', values='Percentage', title='Comment Stance Distribution')
+                st.plotly_chart(fig)
         else:
             st.warning("Please generate a report first.")
 
